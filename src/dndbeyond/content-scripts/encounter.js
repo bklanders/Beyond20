@@ -58,16 +58,16 @@ function updateCombatTracker() {
     if (settings["use-beyond-led"])
     {
         var highlight_seat;
-        // TODO: only run this once not every update? It does allow for fixing names or ordering on the fly though.
         character_seating = settings['beyond-led-seating'].split(',').map(name => name.trim());
-
-        active_character = combat.filter(function (combatant){ return combatant.turn; })[0];
+        active_character = combat.filter(combatant => (combatant.turn))[0];
         if (active_character.tags.includes("character")) {
             highlight_seat = character_seating.indexOf(active_character.name) + 1;
+            //SEND SEAT TO LEDS
             console.log(active_character.name + "'s Turn");            
         }
         else {
             highlight_seat = "DM";
+            //SEND SEAT TO LEDS
             console.log(active_character.name + "'s Turn");            
         }
         console.log("Highlighting Player Seat: " + highlight_seat);
