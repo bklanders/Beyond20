@@ -17,7 +17,7 @@ function documentModified(mutations, observer) {
     if (settings["sync-combat-tracker"]) {
         updateCombatTracker();
     }
-    console.log("Doc modified, new mon : ", monster_name, " !=? ", last_monster_name);
+    //console.log("Doc modified, new mon : ", monster_name, " !=? ", last_monster_name);
     if (monster_name !== last_monster_name) {
         last_monster_name = monster_name;
         removeRollButtons();
@@ -55,20 +55,20 @@ function updateCombatTracker() {
     };
     console.log("Sending combat update", combat);
 
-    if (settings["use-beyond-leds"])
+    if (settings["use-beyond-led"])
     {
         var highlight_seat;
-        // TODO: only run this once not every update.
-        character_seating = settings['beyond-leds-seating'].split(',').map(name => name.trim());
+        // TODO: only run this once not every update? It does allow for fixing names or ordering on the fly though.
+        character_seating = settings['beyond-led-seating'].split(',').map(name => name.trim());
 
         active_character = combat.filter(function (combatant){ return combatant.turn; })[0];
         if (active_character.tags.includes("character")) {
-            console.log(active_character.name + "'s Turn");
             highlight_seat = character_seating.indexOf(active_character.name) + 1;
+            console.log(active_character.name + "'s Turn");            
         }
         else {
-            console.log("DM'S TURN");
             highlight_seat = "DM";
+            console.log(active_character.name + "'s Turn");            
         }
         console.log("Highlighting Player Seat: " + highlight_seat);
 

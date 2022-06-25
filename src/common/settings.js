@@ -163,7 +163,7 @@ const options_list = {
         "default": false
     },
 
-    "use-beyond-leds": {
+    "use-beyond-led": {
         "title": "Highlight Active Players with LEDs",
         "description": "This plugin is mega dope.",
         "short": "Use BeyondLED",
@@ -171,13 +171,13 @@ const options_list = {
         "type": "bool",
         "default": false
     },
-    "beyond-leds-seating": {
-        "title": "Beyond LEDS Character Names and Table Seating",
+    "beyond-led-seating": {
+        "title": "Configuration for BeyondLED Character Names and Table Seating",
         "description": "Array of character names and seats.",
-        "short": "BeyondLEDs Character Seating",
+        "short": "BeyondLED Character Seating",
         "short_description": "Comma separated list of Character Names, names must be exact, order should match seating around the table.",
         "type": "string",
-        "default": "Kuruk of the Miwak Isle, Bodhi Sells, Splorch, Vathak Beastspeaker Munakaga, Marlow Dubade, Henrick Lindquist"
+        "default": "Kuruk of the Miwak Isle, Bodhi Sells, Splorch, Vathak Beastspeaker Munakaga, Marlow Dubade, Henrick Linquist"
     },
     "update-hp": {
         "title": "Update VTT Token HP",
