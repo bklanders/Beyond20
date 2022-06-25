@@ -54,6 +54,25 @@ function updateCombatTracker() {
         combat,
     };
     console.log("Sending combat update", combat);
+
+    if (settings["use-beyond-leds"])
+    {
+        var highlight_seat;
+        // TODO: only run this once not every update.
+        character_seating = settings['beyond-leds-seating'].split(',').map(name => name.trim());
+
+        active_character = combat.filter(function (combatant){ return combatant.turn; })[0];
+        if (active_character.tags.includes("character")) {
+            console.log(active_character.name + "'s Turn");
+            highlight_seat = character_seating.indexOf(active_character.name) + 1;
+        }
+        else {
+            console.log("DM'S TURN");
+            highlight_seat = "DM";
+        }
+        console.log("Highlighting Player Seat: " + highlight_seat);
+
+    }
     chrome.runtime.sendMessage(req, resp => beyond20SendMessageFailure(character, resp));
     sendRollRequestToDOM(req);
 }

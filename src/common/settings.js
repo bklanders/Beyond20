@@ -163,6 +163,22 @@ const options_list = {
         "default": false
     },
 
+    "use-beyond-leds": {
+        "title": "Highlight Active Players with LEDs",
+        "description": "This plugin is mega dope.",
+        "short": "Use BeyondLED",
+        "short_description": "It does the cool thing where people get lit up when it's their turn",
+        "type": "bool",
+        "default": false
+    },
+    "beyond-leds-seating": {
+        "title": "Beyond LEDS Character Names and Table Seating",
+        "description": "Array of character names and seats.",
+        "short": "BeyondLEDs Character Seating",
+        "short_description": "Comma separated list of Character Names, names must be exact, order should match seating around the table.",
+        "type": "string",
+        "default": "Kuruk of the Miwak Isle, Bodhi Sells, Splorch, Vathak Beastspeaker Munakaga, Marlow Dubade, Henrick Lindquist"
+    },
     "update-hp": {
         "title": "Update VTT Token HP",
         "description": "When changing HP in D&D Beyond, update it in the VTT tokens and sheets",
