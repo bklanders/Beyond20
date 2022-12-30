@@ -112,16 +112,8 @@ function isFVTT(title) {
     return title.includes("Foundry Virtual Tabletop");
 }
 
-function isAstral(title) {
-    return title.includes("Astral TableTop");
-}
-
 function fvttTitle(title) {
     return title.replace(" • Foundry Virtual Tabletop", "");
-}
-
-function astralTitle(title) {
-    return title.replace(" | Astral TableTop", "");
 }
 
 function urlMatches(url, matching) {
@@ -136,6 +128,11 @@ function isCustomDomainUrl(tab) {
     }
     return false;
 }
+
+function isSupportedVTT(tab) {
+    return SUPPORTED_VTT_URLS.some(url => urlMatches(tab.url, url))
+}
+
 function alertSettings(url, title) {
     if (alertify.Beyond20Settings === undefined)
         alertify.dialog('Beyond20Settings', function () { return {}; }, false, "alert");

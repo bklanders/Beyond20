@@ -109,10 +109,12 @@ async function queryDamageTypeFromArray(name, damages, damage_types, possible_ty
         if (first_idx === -1) first_idx = idx;
     }
     if (first_idx === -1) return;
-
-    const choice = await dndbeyondDiceRoller.queryDamageType(name, damage_choices);
+    const id = `dmg-${name.replace(/[^a-zA-Z0-9]/g, '-')}`;
+    const choice = await dndbeyondDiceRoller.queryDamageType(name, damage_choices, id);
+    if (choice === null) return null; // query was cancelled
     damages.splice(first_idx, 0, damage_choices[choice]);
     damage_types.splice(first_idx, 0, choice);
+    return choice;
 }
 
 async function buildAttackRoll(character, attack_source, name, description, properties,
@@ -166,9 +168,11 @@ async function buildAttackRoll(character, attack_source, name, description, prop
         roll_properties["damage-types"] = damage_types;
         
         if (roll_properties.name === "Chromatic Orb") {
-            await queryDamageTypeFromArray(roll_properties.name, damages, damage_types, ["Acid", "Cold", "Fire", "Lightning", "Poison", "Thunder"]);
+            const choice = await queryDamageTypeFromArray(roll_properties.name, damages, damage_types, ["Acid", "Cold", "Fire", "Lightning", "Poison", "Thunder"]);
+            if (choice === null) return null; // Query was cancelled;
         } else if (roll_properties.name === "Dragon's Breath") {
-            await queryDamageTypeFromArray(roll_properties.name, damages, damage_types, ["Acid", "Cold", "Fire", "Lightning", "Poison"]);
+            const choice = await queryDamageTypeFromArray(roll_properties.name, damages, damage_types, ["Acid", "Cold", "Fire", "Lightning", "Poison"]);
+            if (choice === null) return null; // Query was cancelled;
         } else if (roll_properties.name.includes("Chaos Bolt")) {
             let base_damage = null;
             for (let dmgtype of ["Acid", "Cold", "Fire", "Force", "Lightning", "Poison", "Psychic", "Thunder"]) {
@@ -183,17 +187,23 @@ async function buildAttackRoll(character, attack_source, name, description, prop
             }
         } else if (roll_properties.name == "Toll the Dead") {
             const ttd_dice = await dndbeyondDiceRoller.queryGeneric(roll_properties.name, "Is the target missing any of its hit points ?", { "d12": "Yes", "d8": "No" }, "ttd_dice", ["d12", "d8"]);
+            if (ttd_dice === null) return null;
             damages[0] = damages[0].replace("d8", ttd_dice);
         }  else if (roll_properties.name === "Spirit Shroud") {
-            await queryDamageTypeFromArray(roll_properties.name, damages, damage_types, ["Cold", "Necrotic", "Radiant"]);
+            const choice = await queryDamageTypeFromArray(roll_properties.name, damages, damage_types, ["Cold", "Necrotic", "Radiant"]);
+            if (choice === null) return null; // Query was cancelled;
         } else if (roll_properties.name === "Destructive Wave") {
-            await queryDamageTypeFromArray(roll_properties.name, damages, damage_types, ["Radiant", "Necrotic"]);
+            const choice = await queryDamageTypeFromArray(roll_properties.name, damages, damage_types, ["Radiant", "Necrotic"]);
+            if (choice === null) return null; // Query was cancelled;
         } else if (roll_properties.name === "Elemental Weapon") {
-            await queryDamageTypeFromArray(roll_properties.name, damages, damage_types, ["Acid", "Cold", "Fire", "Lightning", "Thunder"]);
+            const choice = await queryDamageTypeFromArray(roll_properties.name, damages, damage_types, ["Acid", "Cold", "Fire", "Lightning", "Thunder"]);
+            if (choice === null) return null; // Query was cancelled;
         } else if (roll_properties.name === "Elemental Bane") {
-            await queryDamageTypeFromArray(roll_properties.name, damages, damage_types, ["Acid", "Cold", "Fire", "Lightning", "Thunder"]);
+            const choice = await queryDamageTypeFromArray(roll_properties.name, damages, damage_types, ["Acid", "Cold", "Fire", "Lightning", "Thunder"]);
+            if (choice === null) return null; // Query was cancelled;
         } else if (roll_properties.name === "Spirit Guardians") {
-            await queryDamageTypeFromArray(roll_properties.name, damages, damage_types, ["Radiant", "Necrotic"]);
+            const choice = await queryDamageTypeFromArray(roll_properties.name, damages, damage_types, ["Radiant", "Necrotic"]);
+            if (choice === null) return null; // Query was cancelled;
         }
         
         const crits = damagesToCrits(character, damages, damage_types);
@@ -254,8 +264,9 @@ async function buildAttackRoll(character, attack_source, name, description, prop
                     } else {
                         // Apply great weapon fighting to brutal damage dice
                         if ((character.hasClassFeature("Great Weapon Fighting", true) || character.hasFeat("Great Weapon Fighting", true)) &&
-                            properties["Attack Type"] == "Melee" &&
-                            ((properties["Properties"].includes("Versatile") && character.getSetting("versatile-choice") != "one") || properties["Properties"].includes("Two-Handed"))) {
+                            ((properties["Attack Type"] == "Melee" &&
+                            ((properties["Properties"].includes("Versatile") && character.getSetting("versatile-choice") != "one") || properties["Properties"].includes("Two-Handed"))) ||
+                            name == "Polearm Master - Bonus Attack")) {
                             brutal_dmg += "ro<=2"
                         }
                         crit_damages.push(brutal_dmg);
@@ -330,12 +341,14 @@ async function sendRoll(character, rollType, fallback, args) {
         
     if (req.whisper === WhisperType.QUERY) {
         req.whisper = await dndbeyondDiceRoller.queryWhisper(args.name || rollType, is_monster);
+        if (req.whisper === null) return; // Query was cancelled
     }
     if (rollType === "custom") {
         req.advantage = RollType.NORMAL;
     }
     if (req.advantage === RollType.QUERY) {
         req.advantage = await dndbeyondDiceRoller.queryAdvantage(args.name || rollType, req["advantage-query"]);
+        if (req.advantage === null) return; // Query was cancelled
     }
     if (character.getGlobalSetting("weapon-force-critical", false) || key_modifiers.force_critical) {
         req["rollCritical"] = true;
@@ -537,7 +550,9 @@ function addRollTableButton(character, where, table) {
         event.stopPropagation();
         event.preventDefault();
         // This is because of the prompt for the bardic inspiration dice
-        await table.resolveFormula();
+        const formula = await table.resolveFormula()
+        // Check if there was a query that was cancelled
+        if (formula === null) return;
         sendRoll(character, "roll-table", table.formula, {
             "name": table.name,
             "formula": table.formula,
@@ -588,6 +603,18 @@ function recursiveDiceReplace(node, cb) {
 }
 
 function injectDiceToRolls(selector, character, name = "", replacementFn = null) {
+    // Parse roll tables
+    const tables = $(selector).find("table");
+    for (let table of tables.toArray()) {
+        table = $(table);
+        if (isRollButtonAdded(table)) continue;
+        const tableName = name instanceof Function ? name(table) : name;
+        const roll_table = RollTable.parseTable(table, tableName, {character});
+        if (roll_table) {
+            addRollTableButton(character, table, roll_table);
+        }
+    }
+
     let added = 0;
     const icon = chrome.runtime.getURL("images/icons/badges/custom20.png");
     const replaceCB = (node, dice, modifier) => {
@@ -680,6 +707,13 @@ function activateTooltipListeners(el, direction, tooltip, callback) {
     // If the mouse was over one of the quick roll areas, then we've just destroyed the click handler, so we need to redo it.
     if (quickRollMouseOverEl === el[0]) {
         el.trigger('mouseenter');
+    }
+}
+// If the element on which the tooltip is appearing gets removed from the visible DOM, then we
+// can never receive the mouseleave event, so we trigger it manually
+function hideTooltipIfDestroyed() {
+    if (quickRollMouseOverEl && !document.body.contains(quickRollMouseOverEl)) {
+        $(quickRollMouseOverEl).trigger('mouseleave');
     }
 }
 

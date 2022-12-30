@@ -35,6 +35,10 @@ class Monster extends CharacterBase {
         this._cr = null;
     }
 
+    get isBlockFinder() {
+        return this._base.includes(".stat-block-finder") || this._base.includes(".vehicle-block-finder");
+    }
+
     parseStatBlock(stat_block) {
         const add_dice = this.getGlobalSetting('handle-stat-blocks', true);
         const inject_descriptions = this.getGlobalSetting('subst-dndbeyond-stat-blocks', true);
@@ -50,11 +54,21 @@ class Monster extends CharacterBase {
                 E.img({ class: "ct-beyond20-settings", src: chrome.runtime.getURL("images/icons/icon32.png"), style: "vertical-align: top;" }),
                 E.span({ class: "ct-beyond20-settings-button-label mon-stat-block__tidbit mon-stat-block__tidbit-label", style: "font-size: 28px; margin: 5px;" }, "Beyond 20")
             );
-            stat_block.find(`${base}__header`).prepend(quick_settings);
+            if (this.isBlockFinder) {
+                stat_block.find(".Stat-Block-Styles_Stat-Block-Title").prepend(quick_settings);
+            } else {
+                stat_block.find(`${base}__header`).prepend(quick_settings);
+            }
             $(quick_settings).on('click', (event) => alertQuickSettings());
         }
-        this._name = stat_block.find(base + "__name").text().trim();
-        const link = stat_block.find(base + "__name-link");
+        if (this.isBlockFinder) {
+            this._name = stat_block.find(".Stat-Block-Styles_Stat-Block-Title").text().trim();
+        } else {
+            this._name = stat_block.find(base + "__name").text().trim();
+        }
+        const link = this.isBlockFinder ?
+            stat_block.find(".Stat-Block-Styles_Stat-Block-Title a") :
+            stat_block.find(base + "__name-link");
         if (link.length > 0) {
             this._url = link[0].href;
             this._id = this._url.replace("/monsters/", "").replace("/vehicles/", "");
@@ -62,7 +76,11 @@ class Monster extends CharacterBase {
             this._url = window.location.href;
             this._id = this._name;
         }
-        this._meta = stat_block.find(base + "__meta").text().trim();
+        if (this.isBlockFinder) {
+            this._meta = stat_block.find(".Stat-Block-Styles_Stat-Block-Metadata").text().trim();
+        } else {
+            this._meta = stat_block.find(base + "__meta").text().trim();
+        }
         const avatar = $(".details-aside .image a");
         if (avatar.length > 0) {
             this._avatar = avatar[0].href;
@@ -70,20 +88,41 @@ class Monster extends CharacterBase {
             if (avatarImg)
                 addDisplayButton(() => this.displayAvatar(), avatarImg, { small: false, image: true });
         }
-        const attributes = stat_block.find(`${base}__attributes ${base}__attribute`);
+        const attributes = this.isBlockFinder ?
+            stat_block.find(".Stat-Block-Styles_Stat-Block-Data") :
+            stat_block.find(`${base}__attributes ${base}__attribute`);
         for (let attr of attributes.toArray()) {
-            const label = $(attr).find(base + "__attribute-label").text().trim();
-            let value = $(attr).find(base + "__attribute-value").text().trim();
+            let label;
+            let value;
+            if (this.isBlockFinder) {
+                label = $(attr).find("strong").text().trim();
+                // Use contents() to get text nodes, then skip the first element
+                value = $(attr).contents().slice(1).text().trim();
+            } else {
+                label = $(attr).find(base + "__attribute-label").text().trim();
+                value = $(attr).find(base + "__attribute-value").text().trim();
+            }
             if (value == "")
                 value = $(attr).find(base + "__attribute-data").text().trim();
             if (label == "Armor Class") {
-                this._ac = $(attr).find(base + "__attribute-data-value").text().trim();
+                if (this.isBlockFinder) {
+                    const match = value.match(/([0-9]+)/);
+                    this._ac = match ? match[1] : value;
+                } else {
+                    this._ac = $(attr).find(base + "__attribute-data-value").text().trim();
+                }
             } else if (label == "Hit Points") {
-                this._hp = $(attr).find(base + "__attribute-data-value").text().trim();
-                const formula = $(attr).find(base + "__attribute-data-extra");
-                this._hp_formula = formula.text().trim().slice(1, -1);
+                if (this.isBlockFinder) {
+                    const match = value.match(/([0-9]+)\s*(?:\((.*)\))?/);
+                    this._hp = match ? match[1] : value;
+                    this._hp_formula = match ? match[2] : value;
+                } else {
+                    this._hp = $(attr).find(base + "__attribute-data-value").text().trim();
+                    const formula = $(attr).find(base + "__attribute-data-extra");
+                    this._hp_formula = formula.text().trim().slice(1, -1);
+                }
                 if (add_dice) {
-                    const digitalDiceBox = formula.find(".integrated-dice__container");
+                    const digitalDiceBox = $(attr).find(base + "__attribute-data-extra .integrated-dice__container");
                     if (digitalDiceBox.length > 0) {
                         // Use the digital Dice box (encounters page)
                         digitalDiceBox.off('click').on('click', (e) => {
@@ -93,7 +132,11 @@ class Monster extends CharacterBase {
                         deactivateTooltipListeners(digitalDiceBox);
                         activateTooltipListeners(digitalDiceBox, "right", beyond20_tooltip, () => this.rollHitPoints());
                     } else {
-                        addIconButton(this, () => this.rollHitPoints(), $(attr).find(base + "__attribute-data-extra"), {custom: true});
+                        if (this.isBlockFinder) {
+                            addIconButton(this, () => this.rollHitPoints(), $(attr), {custom: true, append: true});
+                        } else {
+                            addIconButton(this, () => this.rollHitPoints(), $(attr).find(base + "__attribute-data-extra"), {custom: true});
+                        }
                     }
                 }
             } else if (label == "Speed") {
@@ -104,11 +147,18 @@ class Monster extends CharacterBase {
 
         let abilities = stat_block.find(base + "__abilities");
         let prefix = `${base}__ability-`
+        let initiative_selector = base + "__beyond20-roll-initiative";
         if (abilities.length > 0) {
             abilities = abilities.find("> div");
         } else {
-            abilities = stat_block.find(".ability-block > div");
-            prefix = ".ability-block__";
+            if (this.isBlockFinder) {
+                abilities = stat_block.find(".stat-block-ability-scores > div");
+                prefix = ".stat-block-ability-scores-";
+                initiative_selector = ".block-finder__beyond20-roll-initiative"
+            } else {
+                abilities = stat_block.find(".ability-block > div");
+                prefix = ".ability-block__";
+            }
         }
         for (let ability of abilities.toArray()) {
             const abbr = $(ability).find(prefix + "heading").text().toUpperCase();
@@ -129,8 +179,10 @@ class Monster extends CharacterBase {
                     addIconButton(this, () => this.rollAbilityCheck(abbr), ability, { prepend: true });
                 }
                 if (abbr == "DEX") {
-                    let roll_initiative = stat_block.find(base + "__beyond20-roll-initiative");
-                    const attributes = stat_block.find(base + "__attributes");
+                    let roll_initiative = stat_block.find(initiative_selector);
+                    const attributes = this.isBlockFinder ? 
+                        stat_block.find(".red-statblock-text") :
+                        stat_block.find(base + "__attributes");
                     if (attributes.length > 0) {
                         let initiative = roll_initiative.eq(0);
                         // Make sure the modifier didn't change (encounters)
@@ -140,36 +192,67 @@ class Monster extends CharacterBase {
                             roll_initiative = [];
                         }
                         if (roll_initiative.length == 0) {
-                            const attribute_prefix = `${base.slice(1)}__attribute`
-                            initiative = $(
-                                E.div({ class: `${attribute_prefix} ${base.slice(1)}__beyond20-roll-initiative`,
-                                        "data-modifier": modifier },
-                                    E.span({ class: `${attribute_prefix}-label` }, "Roll Initiative!"),
-                                    E.span({ class: `${attribute_prefix}-data` },
-                                        E.span({ class: `${attribute_prefix}-data-value` }, "  " + modifier)
+                            if (this.isBlockFinder) {
+                                initiative = $(
+                                    E.p({ class: `Stat-Block-Styles_Stat-Block-Data ${initiative_selector.slice(1)}`,
+                                            "data-modifier": modifier },
+                                        E.strong({ class: `block-finder-attribute-label` }, "Roll Initiative!"),
+                                        E.span({ class: `block-finder-data` }, "  " + modifier)
                                     )
-                                )
-                            );
+                                );
+                            } else { 
+                                const attribute_prefix = `${base.slice(1)}__attribute`
+                                initiative = $(
+                                    E.div({ class: `${attribute_prefix} ${initiative_selector.slice(1)}`,
+                                            "data-modifier": modifier },
+                                        E.span({ class: `${attribute_prefix}-label` }, "Roll Initiative!"),
+                                        E.span({ class: `${attribute_prefix}-data` },
+                                            E.span({ class: `${attribute_prefix}-data-value` }, "  " + modifier)
+                                        )
+                                    )
+                                );
+                            }
                         }
                         attributes.eq(0).append(initiative);
-                        addIconButton(this, () => this.rollInitiative(), initiative.find(base + "__attribute-data"));
+                        addIconButton(this, () => this.rollInitiative(), initiative, { append: true });
                     }
                 }
             }
         }
 
 
-        const tidbits = stat_block.find(base + "__tidbits " + base + "__tidbit");
+        const tidbits = this.isBlockFinder ? 
+            stat_block.find(".red-statblock-text").eq(1).find(".Stat-Block-Styles_Stat-Block-Data") : 
+            stat_block.find(base + "__tidbits " + base + "__tidbit");
         for (let tidbit of tidbits.toArray()) {
-            const label = $(tidbit).find(base + "__tidbit-label").text();
-            const data = $(tidbit).find(base + "__tidbit-data");
+            let label;
+            let data;
+            if (this.isBlockFinder) {
+                label = $(tidbit).find("strong").text().trim();
+                // Use contents() to get text nodes, then skip the first element
+                data = $(tidbit).contents().slice(1);
+            } else {
+                label = $(tidbit).find(base + "__tidbit-label").text().trim();
+                data = $(tidbit).find(base + "__tidbit-data");
+            }
             const digitalDiceBoxes = data.find(".integrated-dice__container");
             const value = data.text().trim();
             if (label == "Saving Throws") {
                 const saves = value.split(", ");
                 const useDigitalDice = digitalDiceBoxes.length === saves.length;
-                if (add_dice && !useDigitalDice)
+                if (add_dice && !useDigitalDice) {
                     data.html("");
+                    // For block finder, we don't have any elements, instead we have text nodes
+                    if (this.isBlockFinder) {
+                        data = data.addBack().each((idx, el) => {
+                            // Remove text nodes
+                            if (el.nodeType === 3) {
+                                el.remove();
+                            }
+                        }).parent();
+                        data.append(" ");
+                    }
+                }
                 for (let save of saves) {
                     const parts = save.split(" ");
                     const abbr = parts[0];
@@ -219,21 +302,40 @@ class Monster extends CharacterBase {
                 if (useDigitalDice || !add_dice)
                     continue;
                 if (this.type() == "Monster") {
-                    const skill_links = data.find("> a");
+                    const skill_links = this.isBlockFinder ? 
+                        $(tidbit).find("> a") :
+                        data.find("> a");
                     for (let a of skill_links.toArray()) {
                         const mon_skill = a.textContent;
-                        const text = a.nextSibling;
+                        let text = a.nextSibling;
                         let last = true;
+                        if (text.textContent.trim() === "") {
+                            text = text.nextSibling;
+                        }
                         if (text.textContent.endsWith(", ")) {
                             text.textContent = text.textContent.slice(0, -2);
                             last = false;
                         }
-                        addIconButton(this, () => this.rollSkillCheck(mon_skill), a.nextSibling);
+                        if (text.nextSibling && text.nextSibling.textContent.trim() === ",") {
+                            text.nextSibling.remove();
+                            last = false;
+                        }
+                        addIconButton(this, () => this.rollSkillCheck(mon_skill), text);
                         if (!last)
                             $(a.nextElementSibling).after(", ");
                     }
                 } else {
                     data.html("");
+                    // For block finder, we don't have any elements, instead we have text nodes
+                    if (this.isBlockFinder) {
+                        data = data.addBack().each((idx, el) => {
+                            // Remove text nodes
+                            if (el.nodeType === 3) {
+                                el.remove();
+                            }
+                        }).parent();
+                        data.append(" ");
+                    }
                     let first = true;
                     for (let skill in this._skills) {
                         if (!first)
@@ -442,14 +544,26 @@ class Monster extends CharacterBase {
     }
 
     lookForActions(stat_block, add_dice, inject_descriptions) {
-        let blocks = stat_block.find(this._base + "__description-blocks " + this._base + "__description-block");
+        let blocks;
+        
+        if (this.isBlockFinder) {
+            // In block finders, there are no blocks, it's just straight p body elements
+            blocks = stat_block;
+        } else {
+            blocks = stat_block.find(this._base + "__description-blocks " + this._base + "__description-block");
+        }
+
+        this._actions = [];
 
         const handleAction = (action_name, block, action) => {
             if (action_name.slice(-1)[0] == ".")
                 action_name = action_name.slice(0, -1);
+            this._actions.push(action_name);
             //console.log("Action name: ", action_name);
             if (add_dice) {
-                let description = descriptionToString(action);
+                let description = action.toArray ? 
+                    action.toArray().map(a => descriptionToString(a)).join("\n")
+                    : descriptionToString(action);
                 description = description.replace(/−/g, "-");
                 const roll_properties = this.buildAttackRoll(action_name, description);
                 if (roll_properties) {
@@ -503,76 +617,103 @@ class Monster extends CharacterBase {
                     $("#" + id).css({ "float": "", "text-align": "", "margin-top": "15px" });
                 }
             }
-            if (inject_descriptions)
+            if (inject_descriptions) {
                 injectDiceToRolls(action, this, action_name, (...args) => this._injectDiceReplacement(...args));
+            }
         }
 
+        let blockFinderPastTidbits = false;
         for (let block of blocks.toArray()) {
-            const actions = $(block).find(this._base + "__description-block-content p");
-            for (let action of actions.toArray()) {
+            const paragraphs = this.isBlockFinder ? 
+                $(block).find("> p.Stat-Block-Styles_Stat-Block-Body, > p.Stat-Block-Styles_Stat-Block-Data") :
+                $(block).find(`${this._base}__description-block-content p`);
+            let lastAction = null;
+            for (const p of paragraphs.toArray()) {
                 //console.log("Found action: ", action);
-                const firstChild = action.firstElementChild;
-                if (!firstChild) {
-                    if (inject_descriptions)
-                        injectDiceToRolls(action, this, this._name, (...args) => this._injectDiceReplacement(...args));
-                    continue;
-                }
+                const firstChild = p.firstElementChild;
+                if (!firstChild) continue;
                 // Usually <em><strong> || <strong><em> (Orcus is <span><em><strong>);
                 let action_name = $(firstChild).find("> :first-child").text().trim() || $(firstChild).text().trim();
                 if (!action_name) continue;
-                const description = descriptionToString(action).trim();
+                // Replace non-breaking space character with regular space so it can match the description
+                action_name = action_name.replace(/ /g, " ");
+                if (this.isBlockFinder && this.type() === "Vehicle") {
+                    // Vehicles in source books will use data blocks just like any of the tidbits
+                    // need to manually filter them out
+                    if (action_name === "Speed") {
+                        blockFinderPastTidbits = true;
+                        continue;
+                    }
+                    if (!blockFinderPastTidbits) continue;
+                    if (action_name.includes("Immunities")) continue;
+                    if (action_name.includes("Resistance")) continue;
+                }
+                const description = descriptionToString(p).trim();
                 if (!description.startsWith(action_name)) continue;
-                handleAction(action_name, action, action);
+                if (lastAction) {
+                    // Found a new action, parse all DOM elements in between as an action
+                    const action = $(lastAction.block).nextUntil(p).addBack();
+                    handleAction(lastAction.name, lastAction.block, action);
+                }
+                // Store action for later processing
+                lastAction = { name: action_name, block: p };
+            }
+            if (lastAction) {
+                // Grab all the remaining elements
+                const action = $(lastAction.block).nextUntil().addBack();
+                handleAction(lastAction.name, lastAction.block, action);
             }
         }
 
-        // Parse Vehicle (boats) weapons;
-        blocks = stat_block.find(this._base + "__component-block");
-        for (let block of blocks.toArray()) {
-            const action_name = $(block).find(this._base + "__component-block-heading").text().trim();
-            const attributes = $(block).find(this._base + "__component-block-content " + this._base + "__attribute");
-            for (const attribute of attributes.toArray()) {
-                const label = $(attribute).find(`${this._base}__attribute-label`).text().trim();
-                const description = $(attribute).find(`${this._base}__attribute-value`).text().trim();
-                // Skip all attributes and only handle action on the action's desription paragraph with no label
-                // Some vehicles will also have empty attributes with no label and no value
-                if (label || !description)
-                    continue;
-                handleAction(action_name, block, attribute);
+        if (this.type() == "Vehicle" || this.type() == "Extra-Vehicle") {
+            // Parse Vehicle (boats) weapons;
+            blocks = stat_block.find(this._base + "__component-block");
+            for (let block of blocks.toArray()) {
+                const action_name = $(block).find(this._base + "__component-block-heading").text().trim();
+                const attributes = $(block).find(this._base + "__component-block-content " + this._base + "__attribute");
+                for (const attribute of attributes.toArray()) {
+                    const label = $(attribute).find(`${this._base}__attribute-label`).text().trim();
+                    const description = $(attribute).find(`${this._base}__attribute-value`).text().trim();
+                    // Skip all attributes and only handle action on the action's desription paragraph with no label
+                    // Some vehicles will also have empty attributes with no label and no value
+                    if (label || !description)
+                        continue;
+                    handleAction(action_name, block, attribute);
+                }
             }
-        }
 
-        // Parse Vehicle (boats) weapons (in character extra);
-        blocks = stat_block.find(this._base + "-component");
-        for (let block of blocks.toArray()) {
-            const action_name = $(block).find(this._base + "__section-header").text();
-            const actions = $(block).find(this._base + "-component__actions");
-            // We can't parse each action separately because the entire block is interactive.;
-            handleAction(action_name, block, actions);
-        }
-
-        // Parse Vehicle (infernal machines) features;
-        blocks = stat_block.find(this._base + "__feature," + this._base + "__features-feature");
-        for (let block of blocks.toArray()) {
-            let action_name = $(block).find(this._base + "__feature-label").text();
-            let action = $(block).find(this._base + "__feature-value");
-            if (action_name == "" && action.length == 0) {
-                action_name = $(block).find(this._base + "__features-feature-name").text();
-                action = $(block).find(this._base + "__features-feature-description");
+            // Parse Vehicle (boats) weapons (in character extra);
+            blocks = stat_block.find(this._base + "-component");
+            for (let block of blocks.toArray()) {
+                const action_name = $(block).find(this._base + "__section-header").text();
+                const actions = $(block).find(this._base + "-component__actions");
+                // We can't parse each action separately because the entire block is interactive.;
+                handleAction(action_name, block, actions);
             }
-            handleAction(action_name, block, action);
-        }
 
-        // Parse Vehicle (infernal machines) action stations;
-        blocks = stat_block.find(this._base + "__action-station-block," + this._base + "-action-station");
-        for (let block of blocks.toArray()) {
-            let action_name = $(block).find(this._base + "__action-station-block-heading").text();
-            let action = $(block).find(this._base + "__action-station-block-content " + this._base + "__attribute-value");
-            if (action_name == "" && action.length == 0) {
-                action_name = $(block).find(this._base + "-action-station__heading").text();
-                action = $(block).find(this._base + "__action");
+            // Parse Vehicle (infernal machines) features;
+            blocks = stat_block.find(this._base + "__feature," + this._base + "__features-feature");
+            for (let block of blocks.toArray()) {
+                let action_name = $(block).find(this._base + "__feature-label").text();
+                let action = $(block).find(this._base + "__feature-value");
+                if (action_name == "" && action.length == 0) {
+                    action_name = $(block).find(this._base + "__features-feature-name").text();
+                    action = $(block).find(this._base + "__features-feature-description");
+                }
+                handleAction(action_name, block, action);
             }
-            handleAction(action_name, block, action);
+
+            // Parse Vehicle (infernal machines) action stations;
+            blocks = stat_block.find(this._base + "__action-station-block," + this._base + "-action-station");
+            for (let block of blocks.toArray()) {
+                let action_name = $(block).find(this._base + "__action-station-block-heading").text();
+                let action = $(block).find(this._base + "__action-station-block-content " + this._base + "__attribute-value");
+                if (action_name == "" && action.length == 0) {
+                    action_name = $(block).find(this._base + "-action-station__heading").text();
+                    action = $(block).find(this._base + "__action");
+                }
+                handleAction(action_name, block, action);
+            }
         }
     }
     _injectDiceReplacement(node, formula, dice, modifier, name, defaultReplacement) {
@@ -624,7 +765,9 @@ class Monster extends CharacterBase {
     }
 
     lookForSpells(stat_block) {
-        const spells = stat_block.find(this._base + "__description-blocks a.spell-tooltip");
+        const spells = this.isBlockFinder ? 
+            stat_block.find(".Stat-Block-Styles_Stat-Block-Body a.spell-tooltip") :
+            stat_block.find(this._base + "__description-blocks a.spell-tooltip");
         for (let spell of spells.toArray()) {
             const tooltip_href = $(spell).attr("data-tooltip-href");
             const tooltip_url = tooltip_href.replace(/-tooltip.*$/, "/tooltip");
@@ -633,6 +776,7 @@ class Monster extends CharacterBase {
     }
 
     updateInfo() {
+        if (this.type() != "Creature" && this.type() != "Extra-Vehicle") return;
         // Creature name could change/be between.includes(customized) calls;
         this._name = this._stat_block.find(this._base + "__name").text().trim();
         let hp = null;
@@ -677,6 +821,7 @@ class Monster extends CharacterBase {
             "temp-hp": this._temp_hp,
             "speed": this._speed,
             "abilities": this._abilities,
+            "actions": this._actions,
             "discord-target": this._parent_character && this._parent_character.getSetting("discord-target", undefined),
             "saves": this._saves,
             "skills": this._skills,

@@ -1,8 +1,3 @@
-/*
-from utils import addCustomEventListener;
-from settings import WhisperType;
-from roll_renderer import Beyond20RollRenderer, Beyond20BaseRoll;
-*/
 var settings = null;
 var extension_url = "/modules/beyond20/";
 var fvttVersion = game.version || game.data?.version;
@@ -194,10 +189,8 @@ class FVTTDisplayer {
 
 class FVTTRoll extends Beyond20BaseRoll {
     constructor(formula, data = {}) {
-        formula = formula.replace(/ro(=|<|<=|>|>=)([0-9]+)/g, "r$1$2");
-        formula = formula.replace(/(^|\s)+([^\s]+)min([0-9]+)([^\s]*)/g, "$1{$2$4, $3}kh1");
         super(formula, data);
-        this._roll = new Roll(formula, data)
+        this._roll = new Roll(this._formula, data)
     }
 
     get total() {
@@ -205,7 +198,7 @@ class FVTTRoll extends Beyond20BaseRoll {
     }
 
     get formula() {
-        return this._roll.formula;
+        return this.cleanupFormula(this._roll.formula);
     }
 
     get dice() {
@@ -284,6 +277,12 @@ class FVTTRoll extends Beyond20BaseRoll {
         }
     }
 
+    cleanupFormula(formula) {
+        formula = formula.replace(/ro(=|<|<=|>|>=)([0-9]+)/g, "r$1$2");
+        formula = formula.replace(/(^|\s)+([^\s]+)min([0-9]+)([^\s]*)/g, "$1{$2$4, $3}kh1");
+        return super.cleanupFormula(formula);
+    }
+
     async getTooltip() {
         const tooltip = await this._roll.getTooltip();
         // Automatically expand the roll details in the tooltip
@@ -340,7 +339,7 @@ roll_renderer.setSettings(settings);
 
 function rollInitiative(request, custom_roll_dice = "") {
     roll_renderer.handleRollRequest(request).then((roll) => {
-        if (settings["initiative-tracker"])
+        if (roll && settings["initiative-tracker"])
             addInitiativeToCombat(roll);
     });
 }

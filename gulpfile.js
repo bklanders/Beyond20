@@ -5,6 +5,7 @@ const rename = require("gulp-rename");
 
 const ROLL_RENDERER_DEPS = [
     "src/common/utils.js",
+    "libs/FileSaver.min.js",
     "src/common/settings.js",
     "src/common/constants.js",
     "src/discord/discord.js",
@@ -26,17 +27,21 @@ const SRC_FILES = {
     background: [
         "src/common/constants.js",
         "src/common/utils.js",
+        "libs/FileSaver.min.js",
         "src/common/settings.js",
         "src/extension/background.js"
     ],
     options: [
         "src/common/utils.js",
+        "libs/FileSaver.min.js",
         "src/common/settings.js",
         "src/extension/options.js"
     ],
     default_popup: [
         "src/common/sandbox-header.js",
+        "src/common/constants.js",
         "src/common/utils.js",
+        "libs/FileSaver.min.js",
         "src/common/settings.js",
         "src/extension/default_popup.js",
         "src/common/sandbox-footer.js"
@@ -44,22 +49,9 @@ const SRC_FILES = {
     popup: [
         "src/common/constants.js",
         "src/common/utils.js",
+        "libs/FileSaver.min.js",
         "src/common/settings.js",
         "src/extension/popup.js"
-    ],
-    astral: [
-        "src/common/utils.js",
-        "src/common/settings.js",
-        "src/astral/common.js",
-        "src/astral/content-script.js"
-    ],
-    astral_script: [
-        ...ROLL_RENDERER_DEPS,
-        "src/common/utils.js",
-        "src/astral/data-utils.js",
-        "src/astral/renderer.js",
-        "src/astral/common.js",
-        "src/astral/page-script.js"
     ],
     roll20: [
         ...ROLL_RENDERER_DEPS,
@@ -77,6 +69,7 @@ const SRC_FILES = {
     ],
     fvtt: [
         "src/common/utils.js",
+        "libs/FileSaver.min.js",
         "src/common/settings.js",
         "src/fvtt/content-script.js"
     ],
@@ -94,6 +87,7 @@ const SRC_FILES = {
     dndbeyond_spell: [
         ...DNDBEYOND_PAGE_DEPS,
         "src/dndbeyond/base/spell.js",
+        "src/dndbeyond/base/monster.js",
         "src/dndbeyond/content-scripts/spell.js",
     ],
     dndbeyond_item: [
@@ -131,6 +125,8 @@ const SRC_FILES = {
     ],
     dndbeyond_source: [
         ...DNDBEYOND_PAGE_DEPS,
+        "src/dndbeyond/base/spell.js",
+        "src/dndbeyond/base/monster.js",
         "src/dndbeyond/content-scripts/source.js",
     ],
     dndbeyond_mb: [

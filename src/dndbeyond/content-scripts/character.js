@@ -183,6 +183,13 @@ async function rollSkillCheck(paneClass) {
         roll_properties.modifier += character._proficiency;
     }
 
+    // Fey Wanderer Ranger - Otherworldly Glamour
+    if (character.hasClassFeature("Otherworldly Glamour") && ability == "CHA") {
+        modifier = parseInt(modifier) + Math.max(character.getAbility("WIS").mod,1);
+        modifier = modifier >= 0 ? `+${modifier}` : `${modifier}`;
+        roll_properties["modifier"] = modifier;
+    }
+
     return sendRollWithCharacter("skill", "1d20" + modifier, roll_properties);
 }
 
@@ -256,7 +263,7 @@ function rollAbilityOrSavingThrow(paneClass, rollType) {
         roll_properties["modifier"] = modifier;
     }
     // Fey Wanderer Ranger - Otherworldly Glamour
-    if (character.hasClassFeature("Otherworldly Glamour") && ability == "CHA") {
+    if (rollType == "ability" && character.hasClassFeature("Otherworldly Glamour") && ability == "CHA") {
         modifier = parseInt(modifier) + Math.max(character.getAbility("WIS").mod,1);
         modifier = modifier >= 0 ? `+${modifier}` : `${modifier}`;
         roll_properties["modifier"] = modifier;
@@ -460,6 +467,13 @@ function handleSpecialGeneralAttacks(damages=[], damage_types=[], properties, se
     if (character.hasRacialTrait("Radiant Soul") &&
         character.getSetting("protector-aasimar-radiant-soul", false)) {
         damages.push(character._level);
+        damage_types.push("Radiant Soul");
+    }
+
+    // MotM Aasimar: Radiant Soul Damage
+    if (character.hasRacialTrait("Celestial Revelation: Radiant Soul") &&
+        character.getSetting("motm-aasimar-radiant-soul", false)) {
+        damages.push(character._proficiency);
         damage_types.push("Radiant Soul");
     }
 
@@ -848,6 +862,29 @@ async function rollItem(force_display = false, force_to_hit_only = false, force_
             }
         }
 
+        // Handle Dragon Wing * Ranged Weapons
+        if (item_name.includes("Dragon Wing") || item_name === "Flail of Tiamat") {
+            damages.splice(2,damages.length - 2);
+            let possible_damages = damage_types.splice(1,damage_types.length - 1);
+            const damage_type = properties.Notes && possible_damages.reduce((found, damage) => {
+                if (found) return found;
+                if (properties.Notes.toLowerCase().includes(damage.toLowerCase())) return damage;
+                return null;
+            }, null);
+            if (damage_type) {
+                damage_types.push(damage_type);
+            }
+            else if (item_name.includes("Dragon Wing")) {
+                damage_types.push("Infused");
+            }
+            else if (item_name === "Flail of Tiamat") {
+                damage_types.push("Chosen Type");
+            }
+            else {
+                damage_types.push("Extra");
+            }
+        }
+
         const weapon_damage_length = damages.length;
         
         // If clicking on a spell group within a item (Green flame blade, Booming blade), then add the additional damages from that spell
@@ -923,6 +960,10 @@ async function rollItem(force_display = false, force_to_hit_only = false, force_
             force_to_hit_only,
             force_damages_only,
             {weapon_damage_length});
+        if (roll_properties === null) {
+            // A query was cancelled, so let's cancel the roll
+            return;
+        }
         roll_properties["item-type"] = item_type;
         roll_properties["item-customizations"] = item_customizations;
         roll_properties["is_versatile"] = is_versatile;
@@ -1150,6 +1191,10 @@ async function rollAction(paneClass, force_to_hit_only = false, force_damages_on
             force_damages_only,
             {weapon_damage_length});
 
+        if (roll_properties === null) {
+            // A query was cancelled, so let's cancel the roll
+            return;
+        }
         if (critical_limit != 20)
             roll_properties["critical-limit"] = critical_limit;
 
@@ -1341,7 +1386,7 @@ function handleSpecialSpells(spell_name, damages=[], damage_types=[], {spell_sou
 
 }
     
-function handleSpecialHealingSpells(spell_name, damages=[], damage_types=[], {spell_source="", spell_level="Cantrip", castas}={}) {
+function handleSpecialHealingSpells(spell_name, damages=[], damage_types=[], {spell_source="", spell_level="Cantrip", castas, settings_to_change}={}) {
     // Artificer
     if (character.hasClass("Artificer")) {
         if (character.hasClassFeature("Alchemical Savant") &&
@@ -1384,14 +1429,19 @@ function handleSpecialHealingSpells(spell_name, damages=[], damage_types=[], {sp
         }
     }
     
-    // Supreme Healing must ALWAYS be at the end, at it maxes all healing dice
+    // Supreme Healing and Circle of Mortality must ALWAYS be at the end, as they max all healing dice
     if (character.hasClass("Cleric")) {
-        if (character.hasClassFeature("Supreme Healing")) {
+        if (character.hasClassFeature("Supreme Healing") ||
+            (character.hasClassFeature("Circle of Mortality") &&
+            character.getSetting("cleric-circle-of-mortality", false))) {
             for (let i = 0; i < damages.length; i++) {
                 if (!damage_types[i].includes("Healing")) continue;
                 damages[i] = damages[i].replace(/([0-9]*)d([0-9]+)?/, (match, dice, faces) => {
                     return String(parseInt(dice || 1) * parseInt(faces));
                 });
+            }
+            if (character.hasClassFeature("Circle of Mortality")) {
+                settings_to_change["cleric-circle-of-mortality"] = false;
             }
         }
     }
@@ -1481,7 +1531,7 @@ async function rollSpell(force_display = false, force_to_hit_only = false, force
             }
         }
         if (healing_modifiers.length > 0) {
-            handleSpecialHealingSpells(spell_name, damages, damage_types, {spell_level: level, spell_source, castas});
+            handleSpecialHealingSpells(spell_name, damages, damage_types, {spell_level: level, spell_source, castas, settings_to_change});
         }
 
         let critical_limit = 20;
@@ -1502,6 +1552,10 @@ async function rollSpell(force_display = false, force_to_hit_only = false, force
             force_to_hit_only,
             force_damages_only);
 
+        if (roll_properties === null) {
+            // A query was cancelled, so let's cancel the roll
+            return;
+        }
         // If it's an AoE, then split the range property appropriately
         if (aoe_shape) {
             const [range, aoe] = properties["Range/Area"].split("/");
@@ -1696,44 +1750,54 @@ async function execute(paneClass, {force_to_hit_only = false, force_damages_only
     if (customTextRolls.replace.length > 0) {
         await rollCustomText(customTextRolls.replace);
     } else {
-        if (["ct-skill-pane", "ct-custom-skill-pane"].includes(paneClass))
-            await rollSkillCheck(paneClass);
-        else if (paneClass == "ct-ability-pane")
-            await rollAbilityCheck();
-        else if (paneClass == "ct-ability-saving-throws-pane")
-            await rollSavingThrow();
-        else if (paneClass == "ct-initiative-pane")
-            await rollInitiative();
-        else if (paneClass == "ct-item-pane")
-            await rollItem(false, force_to_hit_only, force_damages_only, spell_group);
-        else if (["ct-action-pane", "ct-custom-action-pane"].includes(paneClass))
-            await rollAction(paneClass, force_to_hit_only, force_damages_only);
-        else if (paneClass == "ct-spell-pane")
-            await rollSpell(false, force_to_hit_only, force_damages_only);
-        else
-            await displayPanel(paneClass);
+        try {
+            pauseHotkeyHandling();
+            if (["ct-skill-pane", "ct-custom-skill-pane"].includes(paneClass))
+                await rollSkillCheck(paneClass);
+            else if (paneClass == "ct-ability-pane")
+                await rollAbilityCheck();
+            else if (paneClass == "ct-ability-saving-throws-pane")
+                await rollSavingThrow();
+            else if (paneClass == "ct-initiative-pane")
+                await rollInitiative();
+            else if (paneClass == "ct-item-pane")
+                await rollItem(false, force_to_hit_only, force_damages_only, spell_group);
+            else if (["ct-action-pane", "ct-custom-action-pane"].includes(paneClass))
+                await rollAction(paneClass, force_to_hit_only, force_damages_only);
+            else if (paneClass == "ct-spell-pane")
+                await rollSpell(false, force_to_hit_only, force_damages_only);
+            else
+                await displayPanel(paneClass);
+        } finally {
+            resumeHotkeyHandling();
+        }
     }
     await rollCustomText(customTextRolls.after);
 }
 
 function displayPanel(paneClass) {
     console.log("Beyond20: Displaying panel : " + paneClass);
-    if (paneClass == "ct-item-pane")
-        return displayItem();
-    else if (paneClass == "ct-infusion-choice-pane")
-        return displayInfusion();
-    else if (paneClass == "ct-spell-pane")
-        return displaySpell();
-    else if (["ct-class-feature-pane", "ct-racial-trait-pane", "ct-feat-pane"].includes(paneClass))
-        return displayFeature(paneClass);
-    else if (paneClass == "ct-trait-pane")
-        return displayTrait();
-    else if (["ct-action-pane", "ct-custom-action-pane"].includes(paneClass))
-        return displayAction(paneClass);
-    else if (paneClass == "ct-background-pane")
-        return displayBackground();
-    else
-        alertify.alert("Not recognizing the currently open sidebar");
+    try {
+        pauseHotkeyHandling();
+        if (paneClass == "ct-item-pane")
+            return displayItem();
+        else if (paneClass == "ct-infusion-choice-pane")
+            return displayInfusion();
+        else if (paneClass == "ct-spell-pane")
+            return displaySpell();
+        else if (["ct-class-feature-pane", "ct-racial-trait-pane", "ct-feat-pane"].includes(paneClass))
+            return displayFeature(paneClass);
+        else if (paneClass == "ct-trait-pane")
+            return displayTrait();
+        else if (["ct-action-pane", "ct-custom-action-pane"].includes(paneClass))
+            return displayAction(paneClass);
+        else if (paneClass == "ct-background-pane")
+            return displayBackground();
+        else
+            alertify.alert("Not recognizing the currently open sidebar");
+    } finally {
+        resumeHotkeyHandling();
+    }
 }
 
 function findModifiers(character, custom_roll) {
@@ -1795,15 +1859,6 @@ function checkAndInjectDiceToRolls(selector, name = "") {
     if (!settings["subst-dndbeyond"])
         return;
 
-    const tables = $(selector).find("table");
-    for (let table of tables.toArray()) {
-        table = $(table);
-        if (isRollButtonAdded(table)) continue;
-        const roll_table = RollTable.parseTable(table, name, {character});
-        if (roll_table) {
-            addRollTableButton(character, table, roll_table);
-        }
-    }
     const added = injectDiceToRolls(selector, character, name);
 
     // Don't parse if nothing new was added
@@ -1956,7 +2011,9 @@ function injectRollButton(paneClass) {
                             {},
                             [dmg],
                             ["Bludgeoning"], to_hit);
-                        sendRollWithCharacter("attack", "1d20" + to_hit, props);
+                        if (props) {
+                            sendRollWithCharacter("attack", "1d20" + to_hit, props);
+                        }
                     }, size, { small: true, append: true, image: false, text: "Attack" });
                     $(`#${id}`).css({ "float": "", "text-align": "" });
                 }
@@ -1999,12 +2056,19 @@ function injectRollButton(paneClass) {
             addIconButton(character, () => {
                 const adjustments = $(".ct-saving-throws-box__info .ct-dice-adjustment-summary");
                 let modifier = "";
+                // Aura of protection grants bonus to saves and is listed as an adjustment
+                // but it should not apply when the character is unconscious
+                let removeAuraOfProtection = character.hasClassFeature("Aura of Protection");
                 for (const adjustment of adjustments.toArray()) {
                     const desc = $(adjustment).find(".ct-dice-adjustment-summary__description").text().trim();
                     if (desc !== "on saves") continue;
                     const pos = $(adjustment).find(".ddbc-bonus-positive-svg").length > 0;
                     const amount = parseInt($(adjustment).find(".ct-dice-adjustment-summary__value").text().trim()) || 0;
                     if (!amount) continue;
+                    if (removeAuraOfProtection && amount === Math.max(character.getAbility("CHA").mod, 1)) {
+                        removeAuraOfProtection = false;
+                        continue;
+                    }
                     modifier += `${pos ? "+" : "-"} ${amount} `;
                 }
                 if (character.hasClassFeature("Diamond Soul") && character.getSetting("monk-diamond-soul", false)) {
@@ -2037,8 +2101,10 @@ function injectRollButton(paneClass) {
         const j_conditions = $(".ct-condition-manage-pane .ct-toggle-field--enabled,.ct-condition-manage-pane .ddbc-toggle-field--is-enabled").closest(".ct-condition-manage-pane__condition");
         let exhaustion_level = $(".ct-condition-manage-pane__condition--special .ct-number-bar__option--active,.ct-condition-manage-pane__condition--special .ddbc-number-bar__option--active").text();
         const conditions = [];
-        for (let cond of j_conditions.toArray())
-            conditions.push(cond.textContent);
+        for (let cond of j_conditions.toArray()) {
+            const condition_name = $(cond).find(".ct-condition-manage-pane__condition-name").text();
+            conditions.push(condition_name);
+        }
         if (exhaustion_level == "")
             exhaustion_level = 0;
         else
@@ -2251,6 +2317,7 @@ function deactivateQuickRolls() {
     let initiative = $(".ct-initiative-box__value .integrated-dice__container, .ct-combat-mobile__extra--initiative .ct-combat-mobile__extra-value .integrated-dice__container");
     if (initiative.length === 0)
         initiative = $(".ct-initiative-box__value .ddbc-signed-number, .ct-combat-mobile__extra--initiative .ct-combat-mobile__extra-value .ddbc-signed-number");
+    hideTooltipIfDestroyed();
     deactivateTooltipListeners(initiative);
     deactivateTooltipListeners(abilities);
     deactivateTooltipListeners(saving_throws);

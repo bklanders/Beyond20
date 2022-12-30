@@ -4,6 +4,9 @@ var custom_tabs = []
 var tabRemovalTimers = {};
 var currentPermissions = {origins: []};
 var openedChangelog = false;
+const manifest = chrome.runtime.getManifest();
+// Manifest V3 uses action instead of browserAction
+const action = manifest.manifest_version >= 3 ? chrome.action : chrome.browserAction;
 
 function updateSettings(new_settings = null) {
     if (new_settings) {
@@ -47,7 +50,6 @@ function filterVTTTab(request, limit, tabs, titleCB) {
     return found
 }
 
-
 function sendMessageToRoll20(request, limit = null, failure = null) {
     if (limit) {
         const vtt = limit.vtt || "roll20"
@@ -64,24 +66,6 @@ function sendMessageToRoll20(request, limit = null, failure = null) {
         sendMessageTo(ROLL20_URL, request, failure)
     }
 }
-
-function sendMessageToAstral(request, limit = null, failure = null) {
-    if (limit) {
-        const vtt = limit.vtt || "astral"
-        if (vtt == "astral") {
-            chrome.tabs.query({ "url": ASTRAL_URL }, (tabs) => {
-                found = filterVTTTab(request, limit, tabs, astralTitle)
-                if (failure)
-                    failure(!found)
-            })
-        } else {
-            failure(true)
-        }
-    } else {
-        sendMessageTo(ASTRAL_URL, request, failure = failure)
-    }
-}
-
 
 function sendMessageToFVTT(request, limit, failure = null) {
     console.log("Sending msg to FVTT ", fvtt_tabs)
@@ -102,6 +86,7 @@ function sendMessageToFVTT(request, limit, failure = null) {
         }
     }
 }
+
 function sendMessageToCustomSites(request, limit, failure = null) {
     console.log("Sending msg to custom sites ", custom_tabs);
     if (failure)
@@ -211,9 +196,9 @@ function onMessage(request, sender, sendResponse) {
                 trackFailure[vtt] = result
                 console.log("Result of sending to VTT ", vtt, ": ", result)
                 if (trackFailure["roll20"] !== null && trackFailure["fvtt"] !== null &&
-                    trackFailure["astral"] !== null && trackFailure["custom"] !== null) {
+                    trackFailure["custom"] !== null) {
                     if (trackFailure["roll20"] == true && trackFailure["fvtt"] == true &&
-                        trackFailure["astral"] == true  && trackFailure["custom"] == true) {
+                        trackFailure["custom"] == true) {
                         onRollFailure(request, sendResponse)
                     } else {
                         const vtts = []
@@ -227,13 +212,12 @@ function onMessage(request, sender, sendResponse) {
                 }
             }
         }
-        const trackFailure = { "roll20": null, "fvtt": null, 'astral': null, "custom": null }
+        const trackFailure = { "roll20": null, "fvtt": null, "custom": null }
         if (settings["vtt-tab"] && settings["vtt-tab"].vtt === "dndbeyond") {
             sendResponse({ "success": false, "vtt": "dndbeyond", "error": null, "request": request })
         } else {
             sendMessageToRoll20(request, settings["vtt-tab"], makeFailureCB(trackFailure, "roll20", sendResponse))
             sendMessageToFVTT(request, settings["vtt-tab"], makeFailureCB(trackFailure, "fvtt", sendResponse))
-            sendMessageToAstral(request, settings["vtt-tab"],  makeFailureCB(trackFailure, "astral", sendResponse))
             sendMessageToCustomSites(request, null, makeFailureCB(trackFailure, "custom", sendResponse))
         }
         return true
@@ -243,23 +227,22 @@ function onMessage(request, sender, sendResponse) {
         sendMessageToRoll20(request);
         sendMessageToBeyond(request);
         sendMessageToFVTT(request);
-        sendMessageToAstral(request);
         sendMessageToCustomSites(request);
     } else if (request.action == "activate-icon") {
         // popup doesn't have sender.tab so we grab it from the request.
         const tab = request.tab || sender.tab;
-        chrome.browserAction.setPopup({ "tabId": tab.id, "popup": "popup.html" });
+        action.setPopup({ "tabId": tab.id, "popup": "popup.html" });
         if (isFVTT(tab.title)) {
             injectFVTTScripts([tab]);
             addFVTTTab(tab)
-        } else if (isCustomDomainUrl(tab) && !isCustomTabAdded(tab)) {
+        } else if ((isCustomDomainUrl(tab) || isSupportedVTT(tab)) && !isCustomTabAdded(tab)) {
             injectGenericSiteScripts([tab]);
         }
         // maybe open the changelog
         if (!openedChangelog) {
             // Mark it true regardless of whether we opened it, so we don't check every time and avoid race conditions on setting save
             openedChangelog = true;
-            const version = chrome.runtime.getManifest().version;
+            const version = manifest.version;
             if (settings["show-changelog"] && settings["last-version"] != version) {
                 mergeSettings({ "last-version": version })
                 chrome.tabs.create({ "url": CHANGELOG_URL })
@@ -269,13 +252,13 @@ function onMessage(request, sender, sendResponse) {
     } else if (request.action == "register-fvtt-tab") {
         addFVTTTab(sender.tab);
     } else if (request.action == "register-generic-tab") {
-        chrome.browserAction.setPopup({ "tabId": sender.tab.id, "popup": "popup.html" });
+        action.setPopup({ "tabId": sender.tab.id, "popup": "popup.html" });
         addCustomTab(sender.tab);
     } else if (request.action == "reload-me") {
         chrome.tabs.reload(sender.tab.id)
     } else if (request.action == "load-alertify") {
         insertCSSs([sender.tab], ["libs/css/alertify.css", "libs/css/alertify-themes/default.css", "libs/css/alertify-themes/beyond20.css"]);
-        chrome.tabs.executeScript(sender.tab.id, { "file": "libs/alertify.min.js" }, sendResponse);
+        executeScripts([sender.tab], ["libs/alertify.min.js"], sendResponse);
         return true
     } else if (request.action == "get-current-tab") {
         sendResponse(sender.tab)
@@ -283,6 +266,9 @@ function onMessage(request, sender, sendResponse) {
         chrome.tabs.sendMessage(request.tab, request.message, {frameId: 0}, sendResponse)
         return true
     }
+    // Due to MV3 issues and a bug in chrome 99-101, apparently we need to always call sendResponse 
+    // to prevent the socket from being closed
+    sendResponse();
     return false
 }
 
@@ -295,18 +281,35 @@ function injectGenericSiteScripts(tabs) {
     executeScripts(tabs, ["libs/alertify.min.js", "libs/jquery-3.4.1.min.js", "dist/generic_site.js"])
 }
 
-function insertCSSs(tabs, css_files) {
+function insertCSSs(tabs, css_files, callback) {
     for (let tab of tabs) {
-        for (let file of css_files) {
-            chrome.tabs.insertCSS(tab.id, { "file": file })
+        // Use new Manifest V3 scripting API 
+        if (manifest.manifest_version >= 3) {
+            chrome.scripting.insertCSS( {
+                target: {tabId: tab.id},
+                files: css_files
+            }, callback);
+        } else {
+            for (let file of css_files) {
+                chrome.tabs.insertCSS(tab.id, { "file": file }, callback)
+            }
         }
     }
 }
 
-function executeScripts(tabs, js_files) {
+async function executeScripts(tabs, js_files, callback) {
     for (let tab of tabs) {
-        for (let file of js_files) {
-            chrome.tabs.executeScript(tab.id, { "file": file })
+        // Use new Manifest V3 scripting API 
+        if (manifest.manifest_version >= 3) {
+            console.log("Target is : ", tab);
+            chrome.scripting.executeScript( {
+                target: {tabId: tab.id},
+                files: js_files
+            }, callback);
+        } else {
+            for (let file of js_files) {
+                chrome.tabs.executeScript(tab.id, { file: file }, callback)
+            }
         }
     }
 }
@@ -320,7 +323,7 @@ function onTabsUpdated(id, changes, tab) {
         // fail to remove/add the tab, as it should
         tabRemovalTimers[id] = setTimeout(() => removeFVTTTab(id), 100);
     } else if (isCustomTabAdded(tab) &&
-        ((changes.url && !isCustomDomainUrl(tab)) ||
+        ((changes.url && !isCustomDomainUrl(tab) && !isSupportedVTT(tab)) ||
          (changes["status"] == "loading"))) {
         // Delay tab removal because the 'loading' could be caused by the injection of the page script itself
         // 100ms should be fast enough for page script but not so slow that a reload on a localhost would
@@ -329,7 +332,7 @@ function onTabsUpdated(id, changes, tab) {
     }
     /* Load Beyond20 on custom urls that have been added to our permissions */
     if (changes["status"] === "complete" &&
-        (isFVTT(tab.title) || isCustomDomainUrl(tab))) {
+        (isFVTT(tab.title) || isCustomDomainUrl(tab) || isSupportedVTT(tab))) {
         // Cancel tab removal if we go back to complete within 100ms as the page script loads
         if (tabRemovalTimers[id]) {
             clearTimeout(tabRemovalTimers[id]);
@@ -341,7 +344,7 @@ function onTabsUpdated(id, changes, tab) {
             const hasPermission = currentPermissions.origins.some(pattern => urlMatches(origin, pattern));
             if (hasPermission) {
                 if (isFVTT(tab.title)) {
-                    chrome.tabs.executeScript(tab.id, { "file": "dist/fvtt_test.js" });
+                    executeScripts([tab], ["dist/fvtt_test.js"]);
                 } else {
                     injectGenericSiteScripts([tab])
                 }
@@ -364,7 +367,7 @@ function onPermissionsUpdated() {
 
 function browserActionClicked(tab) {
     console.log("Browser action clicked for tab : ", tab.id, tab.url);
-    chrome.tabs.executeScript(tab.id, { "file": "dist/fvtt_test.js" })
+    executeScripts([tab], ["dist/fvtt_test.js"])
 }
 
 updateSettings()
@@ -381,7 +384,7 @@ chrome.permissions.getAll((permissions) => {
         chrome.tabs.query({ "url": pattern }, (tabs) => {
             // Skip if it's not a FVTT or custom tab
             const fvttTabs = tabs.filter(tab => isFVTT(tab.title));
-            const customTabs = tabs.filter(tab => isCustomDomainUrl(tab));
+            const customTabs = tabs.filter(tab => isCustomDomainUrl(tab) || isSupportedVTT(tab));
             console.log("Permissions : ", pattern, fvttTabs, customTabs);
             executeScripts(fvttTabs, ["dist/fvtt_test.js"]);
             injectGenericSiteScripts(customTabs);
@@ -391,7 +394,6 @@ chrome.permissions.getAll((permissions) => {
 
 if (getBrowser() == "Chrome") {
     // Re-inject scripts when reloading the extension, on Chrome
-    const manifest = chrome.runtime.getManifest()
     for (let script of manifest.content_scripts) {
         cb = (js_files, css_files) => {
             return (tabs) => {
@@ -406,4 +408,4 @@ if (getBrowser() == "Chrome") {
         chrome.tabs.query({ "url": script.matches }, cb(script.js, script.css))
     }
 }
-chrome.browserAction.onClicked.addListener(browserActionClicked);
+action.onClicked.addListener(browserActionClicked);

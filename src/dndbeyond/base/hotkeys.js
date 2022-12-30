@@ -6,8 +6,18 @@ const key_modifiers = {
     super_disadvantage: false,
     normal_roll: false
 };
+const MAX_QUEUED_HOTKEY_EVENTS = 1000;
+const savedKeyEvents = [];
+var handleHotKeys = true;
 
-const handleKeyModifierEvent = (event) => {
+function handleKeyModifierEvent(event, force=false) {
+    // Pause event handling, queue the event
+    if (!handleHotKeys && !force) {
+        if (savedKeyEvents.length < MAX_QUEUED_HOTKEY_EVENTS) {
+            savedKeyEvents.push(event);
+        }
+        return;
+    }
     handleKeyModifier(event.type, event.key, event.code, event.originalEvent.repeat);
 }
 
@@ -19,7 +29,16 @@ function handleKeyModifier(etype, key, code, repeat) {
                      key_modifiers.super_disadvantage << 4;
     const modifier = (key_bindings || {})[code] || (key_bindings || {})[key];
     if (modifier) {
-        if (settings['sticky-hotkeys']) {
+        if (modifier.startsWith("toggle-")) {
+            // Permanent option toggle
+            if (etype === "keydown" && typeof(character) !== "undefined" && character.type() === "Character") {
+                const option = modifier.slice("toggle-".length);
+                console.log("Toggling character option from hotkey", option);
+                character.mergeCharacterSettings({
+                    [option]: !character.getSetting(option)
+                });
+            }
+        } else if (settings['sticky-hotkeys']) {
             if (etype !== "keydown") return;
             // Save value before we reset all to false
             const new_value = !key_modifiers[modifier];
@@ -42,7 +61,7 @@ function handleKeyModifier(etype, key, code, repeat) {
         updateRollTypeButtonClasses();
 }
 
-const resetKeyModifiers = (event) => {
+function resetKeyModifiers(event) {
     const needsUpdate = key_modifiers.advantage << 0 | key_modifiers.disadvantage << 1 |
                         key_modifiers.normal_roll << 2 | key_modifiers.super_advantage << 3 |
                         key_modifiers.super_disadvantage << 4;
@@ -52,6 +71,21 @@ const resetKeyModifiers = (event) => {
         updateRollTypeButtonClasses();
     updateHotkeysList();
 }
+
+/**
+ * Pauses the handling of key events, which can be used if a user prompt
+ * happens, where we want to retain the key_modifiers state until the roll is made
+ */
+function pauseHotkeyHandling() {
+    handleHotKeys = false;
+}
+function resumeHotkeyHandling() {
+    while (savedKeyEvents.length > 0) {
+        handleKeyModifierEvent(savedKeyEvents.pop(), true);
+    } 
+    handleHotKeys = true;
+}
+
 
 function updateHotkeysList(popup) {
     // Ensure it runs only on pages with the hotkeys popup
@@ -66,6 +100,8 @@ function updateHotkeysList(popup) {
     for (const key in bindings){
         const binding = bindings[key];
         if (!binding) continue;
+        // Don't show permanent toggles
+        if (binding.startsWith("toggle-")) continue;
         if (key_modifiers[binding])
             hotkeys_enabled = true;
         if (roll_types[binding] !== undefined) {

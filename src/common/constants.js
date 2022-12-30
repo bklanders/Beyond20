@@ -1,6 +1,5 @@
 ROLL20_URL = "*://app.roll20.net/editor/";
 FVTT_URL = "*://*/*game";
-ASTRAL_URL =  "*://*.astraltabletop.com/play/*";
 DNDBEYOND_CHARACTER_URL = "*://*.dndbeyond.com/*characters/*";
 DNDBEYOND_MONSTER_URL = "*://*.dndbeyond.com/monsters/*";
 DNDBEYOND_ENCOUNTERS_URL = "*://*.dndbeyond.com/my-encounters";
@@ -16,6 +15,8 @@ DNDBEYOND_FEATS_URL = "*://*.dndbeyond.com/feats/*";
 CHANGELOG_URL = "https://beyond20.here-for-more.info/update";
 DISCORD_BOT_INVITE_URL = "https://beyond20.kicks-ass.org/invite";
 DISCORD_BOT_API_URL = "https://beyond20.kicks-ass.org/roll";
+SUPPORTED_VTT_URLS = ["https://harpy.gg/*", "https://app.alchemyrpg.com/game/*"];
+
 
 BUTTON_STYLE_CSS = `
 .character-button, .character-button-small {

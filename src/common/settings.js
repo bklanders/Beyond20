@@ -316,10 +316,17 @@ const options_list = {
         "default": "Unknown Creature",
         "advanced": true
     },
+    
+    "roll20-spell-details-display": {
+        "title": "Display Spell Details in spell attacks",
+        "description": "When doing a spell attack, display the spell's details (Roll20 only toggle)",
+        "type": "bool",
+        "default": false
+    },
 
     "roll20-spell-description-display": {
         "title": "Display Spell Descriptions in spell attacks",
-        "description": "When doing a spell attack, display the spells full description (Roll20 only toggle)",
+        "description": "When doing a spell attack, display the spell's full description (Roll20 only toggle)",
         "type": "bool",
         "default": false
     },
@@ -415,6 +422,28 @@ const options_list = {
         "description": "Overwrites the VTT's combat tracker with the details from D&D Beyond's Encounter tool (Roll20 only, GM only)",
         "type": "bool",
         "default": true
+    },
+    "discord-display-description": {
+        "title": "Display description in Discord",
+        "description": "Display the roll's description in the Discord message",
+        "type": "bool",
+        "default": false,
+        "advanced": true
+    },
+
+    "backup-settings": {
+        "title": "Backup Beyond20 settings",
+        "description": "Export your Beyond20 settings to a file for backup",
+        "type": "special",
+        "advanced": true,
+        "default": null
+    },
+    "restore-settings": {
+        "title": "Restore Beyond20 settings",
+        "description": "Import your Beyond20 settings from a previously exported backup file",
+        "type": "special",
+        "advanced": true,
+        "default": null
     },
 
     "donate": {
@@ -543,6 +572,12 @@ const character_settings = {
         "description": "Deal an extra 1d8 damage on damaging cantrips and weapon attacks",
         "type": "bool",
         "default": true
+    },
+    "cleric-circle-of-mortality": {
+        "title": "Cleric: Death Domain: Circle of Mortality",
+        "description": "Manipulating the line between life and death, your healing on a creature with 0 hp is maximized",
+        "type": "bool",
+        "default": false
     },
     "cleric-divine-strike": {
         "title": "Cleric: Divine Strike",
@@ -742,6 +777,12 @@ const character_settings = {
         "type": "bool",
         "default": false
     },
+    "motm-aasimar-radiant-soul": {
+        "title": "Aasimar: Celestial Revelation: Radiant Soul",
+        "description": "Unleash your divine soul to deal extra radiant damage equal to your proficiency.",
+        "type": "bool",
+        "default": false
+    },
     "halfling-lucky": {
         "title": "Halfling: Lucky",
         "description": "The luck of your people guides your steps",
@@ -780,6 +821,12 @@ function storageRemove(names, cb = null) {
         if (cb)
             cb(names);
     });
+}
+function storageGetEverything(cb) {
+    getStorage().get(null, cb);
+}
+function storageSetEverything(value, cb) {
+    getStorage().set(value, cb);
 }
 
 function getDefaultSettings(_list = options_list) {
@@ -1436,12 +1483,16 @@ function configureHotKey(bindings, bindings_div, html, key) {
         newKey = event.code;
         let binding = bindings[key];
         let custom_formula = "";
+        let permanent_toggle = false;
         if (binding.startsWith("custom_damage")) {
             custom_formula = binding.slice("custom_damage:".length).trim();
             binding = "custom_damage";
         } else if (binding.startsWith("custom_modifier")) {
             custom_formula = binding.slice("custom_modifier:".length).trim();
             binding = "custom_modifier";
+        } else if (binding.startsWith("toggle-")) {
+            permanent_toggle = true;
+            binding = `option-${binding.slice("toggle-".length)}`;
         }
         const newKeyName = newKey.replace(/^Key|^Digit/, "");
         const actions = $(`
@@ -1453,14 +1504,27 @@ function configureHotKey(bindings, bindings_div, html, key) {
                     <option value="">None</option>
                 </select>
                 <div class="custom_formula" style="display: none">
-                    <label> Custom Formula : 
+                    <label style="margin: 5px;"> Custom Formula : 
                         <input type="text" value="${custom_formula}">
                     </label>
+                </div>
+                <div class="toggle_options" style="display: none">
+                    <label style="margin: 5px;">
+                        <b>Permanently toggle the setting when the hotkey is pressed</b>
+                        <input type="checkbox" ${permanent_toggle ? "checked" : ""}>
+                    </label>
+                    <div>
+                      <small>A temporary toggle will only apply while the hotkey is pressed</small>
+                    </div>
+                    <div>
+                      <small>A permanent toggle will change the option until pressed again or changed from the settings</small>
+                    </div>
                 </div>
             </div>
         `)
         const select = actions.find("select");
         const custom_div = actions.find(".custom_formula");
+        const toggles_div = actions.find(".toggle_options");
         let group = $(`<optgroup label="Override Global Settings"></optgroup>`);
         select.append(group);
         for (const action in BINDING_NAMES) {
@@ -1469,7 +1533,7 @@ function configureHotKey(bindings, bindings_div, html, key) {
                 <option value="${action}" ${binding === action ? "selected": ""}>${BINDING_NAMES[action]}</option>
             `));
         }
-        group = $(`<optgroup label="Temporarily toggle Character-Specific setting"></optgroup>`)
+        group = $(`<optgroup label="Toggle Character-Specific setting"></optgroup>`)
         select.append(group);
         for (const name in character_settings) {
             const option = character_settings[name];
@@ -1486,6 +1550,11 @@ function configureHotKey(bindings, bindings_div, html, key) {
             } else {
                 custom_div.hide();
             }
+            if (value.startsWith("option-")) {
+                toggles_div.show();
+            } else {
+                toggles_div.hide();
+            }
         });
         select.trigger('input');
         alert.empty().append(actions)
@@ -1497,6 +1566,12 @@ function configureHotKey(bindings, bindings_div, html, key) {
         const custom_formula = alert.find(".custom_formula input").val() || "";
         if (action === "custom_modifier" || action === "custom_damage") {
             action = `${action}: ${custom_formula}`;
+        }
+        if (action.startsWith("option-")) {
+            const toggle = alert.find(".toggle_options input")[0].checked;
+            if (toggle) {
+                action = action.replace(/^option-/, "toggle-")
+            }
         }
         html.remove();
         delete bindings[key];
@@ -1516,6 +1591,9 @@ function getHotKeyBindingName(key) {
     let name = BINDING_NAMES[key] || key;
     if (name.startsWith("option-") && character_settings[name.slice("option-".length)]) {
         name = character_settings[name.slice("option-".length)].title;
+    }
+    if (name.startsWith("toggle-") && character_settings[name.slice("toggle-".length)]) {
+        name = character_settings[name.slice("toggle-".length)].title + "✅";
     }
     if (name.startsWith("custom_modifier:")) {
         name = BINDING_NAMES["custom_modifier"] + ": " + name.slice("custom_modifier:".length);
@@ -1738,6 +1816,90 @@ function getCustomDomainsSetting(name) {
     return cleaned;
 }
 
+
+function createBackupRestoreSetting(name, short) {
+    const backup = (name === "backup-settings");
+    const opt = options_list[name];
+    const description_p = opt.description.split("\n").map(desc => E.p({}, desc));
+    const label = backup ? "Export" : "Import";
+    // If import, add a hidden file input
+    if (!backup) {
+        description_p.push(E.input({
+            style: "display: none;",
+            type: "file",
+            accept: ".json",
+        }))
+    }
+    const setting = E.li({
+        id: `beyond20-option-${name}`,
+        class: "list-group-item beyond20-option beyond20-option-text" 
+    },
+        E.label({ class: "list-content", for: name },
+            E.h4({}, opt.title),
+            ...description_p,
+            E.div({class: "save button-group"},
+                E.button({ class: "beyond20-option-input btn", type: "button"}, label),
+            )
+        )
+    );
+    const button = $(setting).find("button");
+    const input = $(setting).find("input");
+    button.click(ev => {
+        ev.stopPropagation();
+        ev.preventDefault();
+        if (backup) {
+            // Export
+            storageGetEverything(allSettings => {
+                allSettings.beyond20 = {format: 1};
+                const blob = new Blob([JSON.stringify(allSettings)], {type: "application/json"});
+                saveAs(blob, "Beyond20.json");
+            });
+        } else {
+            // Import
+            input.click();
+        }
+    });
+    if (!backup) {
+        input.on('change', (ev) => {
+            if (input[0].files.length === 0) return;
+            const file = input[0].files[0];
+            const fr = new FileReader();
+            fr.addEventListener("load", () => {
+                try {
+                    const allSettings = JSON.parse(fr.result);
+                    if (!allSettings.beyond20 || allSettings.beyond20.format !== 1) {
+                        throw new Error("File doesn't contain Beyond20 settings");
+                    }
+                    delete allSettings.beyond20;
+                    storageSetEverything(allSettings, () => {
+                        for (const key in allSettings) {
+                            if (key === "settings") {
+                                chrome.runtime.sendMessage({ "action": "settings", "type": "general", "settings": allSettings[key] });
+                            } else if (key.startsWith("character-")) {
+                                const id = key.slice("character-".length);
+                                chrome.runtime.sendMessage({ "action": "settings", "type": "character", "id": id, "settings": allSettings[key] })
+                            }
+                        }
+                        alertify.success("Beyond20 settings loaded successfully");
+                    });
+                } catch (err) {
+                    alertify.error(`Unable to load selected file : ${err.message}`);
+                }
+            }, false);
+            fr.addEventListener("error", (ev) => {
+                alertify.error("Unable to load selected file");
+            }, false);
+            fr.readAsText(file);
+        })
+    }
+
+    return setting;
+}
+function setBackupRestoreSetting(name, settings) {
+}
+function getBackupRestoreSetting(name) {
+}
+
 options_list["vtt-tab"]["createHTMLElement"] = createVTTTabSetting;
 options_list["vtt-tab"]["set"] = setVTTTabSetting;
 options_list["vtt-tab"]["get"] = getVTTTabSetting;
@@ -1753,3 +1915,11 @@ options_list["custom-domains"]["get"] = getCustomDomainsSetting;
 character_settings["discord-target"]["createHTMLElement"] = createDiscordTargetSetting;
 character_settings["discord-target"]["set"] = setDiscordTargetSetting;
 character_settings["discord-target"]["get"] = getDiscordTargetSetting;
+
+options_list["backup-settings"]["createHTMLElement"] = createBackupRestoreSetting;
+options_list["backup-settings"]["set"] = setBackupRestoreSetting;
+options_list["backup-settings"]["get"] = getBackupRestoreSetting;
+
+options_list["restore-settings"]["createHTMLElement"] = createBackupRestoreSetting;
+options_list["restore-settings"]["set"] = setBackupRestoreSetting;
+options_list["restore-settings"]["get"] = getBackupRestoreSetting;

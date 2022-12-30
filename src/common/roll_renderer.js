@@ -51,8 +51,12 @@ class Beyond20RollRenderer {
         html += `;</select></div></form>`;
         return new Promise((resolve) => {
             this._prompter.prompt(title, html, "Roll").then((html) => {
-                if (html)
+                if (html) {
                     resolve(html.find("#" + select_id).val());
+                } else {
+                    // return null in case it got cancelled
+                    resolve(null);
+                }
             });
         });
     }
@@ -70,7 +74,9 @@ class Beyond20RollRenderer {
         const order = [RollType.NORMAL, RollType.ADVANTAGE, RollType.DISADVANTAGE, RollType.DOUBLE, RollType.THRICE, RollType.SUPER_ADVANTAGE, RollType.SUPER_DISADVANTAGE];
         const lastQuery = this._settings["last-advantage-query"];
         reason = reason.split("\n").join("<br/>");
-        const advantage = parseInt(await this.queryGeneric(title, "Select roll mode : ", choices, "roll-mode", order, lastQuery, {prefix: reason}));
+        const result = await this.queryGeneric(title, "Select roll mode : ", choices, "roll-mode", order, lastQuery, {prefix: reason});
+        if (result === null) return null;
+        const advantage = parseInt(result);
         if (lastQuery != advantage) {
             this._mergeSettings({ "last-advantage-query": advantage })
         }
@@ -85,17 +91,17 @@ class Beyond20RollRenderer {
         if (monster)
             choices[WhisperType.HIDE_NAMES] = "Hide Monster and Attack Name";
         const lastQuery = this._settings["last-whisper-query"];
-        const whisper = parseInt(await this.queryGeneric(title, "Select whisper mode : ", choices, "whisper-mode", null, lastQuery));
+        const result = await this.queryGeneric(title, "Select whisper mode : ", choices, "whisper-mode", null, lastQuery);
+        if (result === null) return null;
+        const whisper = parseInt(result);
         if (lastQuery != whisper) {
             this._mergeSettings({ "last-whisper-query": whisper })
         }
         return whisper;
     }
 
-    async getToHit(request, title, modifier = "", data = {}, type="to-hit") {
-        let advantage = request.advantage;
-        if (advantage == RollType.QUERY)
-            advantage = await this.queryAdvantage(title);
+    getToHit(request, modifier = "", data = {}, type="to-hit") {
+        const advantage = request.advantage;
 
         const d20 = request.d20 || "1d20";
         let rolls = [];
@@ -116,7 +122,7 @@ class Beyond20RollRenderer {
             rolls.push(this.createRoll(d20 + modifier, data, type));
         }
         rolls.forEach(r => r.setCriticalFaces(20));
-        return {advantage, rolls};
+        return {rolls};
     }
     processToHitAdvantage(advantage, rolls) {
         if ([RollType.DOUBLE, RollType.ADVANTAGE, RollType.DISADVANTAGE].includes(advantage)) {
@@ -354,7 +360,7 @@ class Beyond20RollRenderer {
         html += "</div>";
         const character = (request.whisper == WhisperType.HIDE_NAMES) ? this._settings["hidden-monster-replacement"] : request.character.name;
         const discordChannel = getDiscordChannel(this._settings, request.character)
-        postToDiscord(discordChannel ? discordChannel.secret : "", request, title, source, attributes, description, attack_rolls, roll_info, damage_rolls, total_damages, open).then(discord_error => {
+        postToDiscord(discordChannel ? discordChannel.secret : "", request, title, source, attributes, description, attack_rolls, roll_info, damage_rolls, total_damages, open, this._settings).then(discord_error => {
             if (discord_error != undefined)
                 this._displayer.displayError("Beyond20 Discord Integration: " + discord_error);
         });
@@ -425,8 +431,10 @@ class Beyond20RollRenderer {
         let is_monster = character.type() == "Monster" || character.type() == "Vehicle";
         if (is_monster && whisper_monster != WhisperType.NO)
             whisper = whisper_monster;
-        if (whisper === WhisperType.QUERY)
+        if (whisper === WhisperType.QUERY) {
             whisper = await this.queryWhisper(digitalRoll.name || "Custom Roll", is_monster);
+            if (whisper === null) return; // query was cancelled
+        }
         // Default advantage/whisper would get overriden if (they are part of provided args;
         const request = {
             action: "roll",
@@ -442,9 +450,9 @@ class Beyond20RollRenderer {
     }
 
     async rollD20(request, title, data, type) {
-        const {advantage, rolls} = await this.getToHit(request, title, "", data, type)
+        const {rolls} = this.getToHit(request, "", data, type)
         await this._roller.resolveRolls(title, rolls, request);
-        this.processToHitAdvantage(advantage, rolls);
+        this.processToHitAdvantage(request.advantage, rolls);
         return this.postDescription(request, title, null, {}, null, rolls);
     }
 
@@ -499,7 +507,7 @@ class Beyond20RollRenderer {
         return this.postDescription(request, name, source, {}, request.description, [], [], [], true);
     }
 
-    queryDamageType(title, damage_types) {
+    async queryDamageType(title, damage_types, type_id="damage-type") {
         const choices = {}
         for (let option in damage_types) {
             const value = damage_types[option];
@@ -508,20 +516,25 @@ class Beyond20RollRenderer {
             else
                 choices[option] = option;
         }
-        return this.queryGeneric(title, "Choose Damage Type :", choices, "damage-type");
+        // get/save the last user selection during similar query
+        const settingId = `last-query-${type_id}`;
+        const lastQuery = this._settings[settingId];
+        const result = await this.queryGeneric(title, "Choose Damage Type :", choices, type_id, undefined, lastQuery);
+        if (result !== null && lastQuery != result) {
+            this._mergeSettings({ [settingId]: result })
+        }
+        return result;
     }
 
     async buildAttackRolls(request, custom_roll_dice) {
         let to_hit = [];
-        let to_hit_advantage = null;
         const damage_rolls = [];
         const all_rolls = [];
         let is_critical = false;
         if (request.rollAttack && request["to-hit"] !== undefined) {
             const custom = custom_roll_dice == "" ? "" : (" + " + custom_roll_dice);
             const to_hit_mod = " + " + request["to-hit"] + custom;
-            const {advantage, rolls} = await this.getToHit(request, request.name, to_hit_mod)
-            to_hit_advantage = advantage;
+            const {rolls} = this.getToHit(request, to_hit_mod)
             to_hit.push(...rolls);
             all_rolls.push(...rolls);
         }
@@ -578,7 +591,11 @@ class Beyond20RollRenderer {
                             damage_rolls.push(["Chaotic energy leaps from the target to a different creature of your choice within 30 feet of it", "", DAMAGE_FLAGS.MESSAGE]);
                             chaotic_type = Object.keys(damage_choices)[0];
                         } else {
-                            chaotic_type = await this.queryDamageType(request.name, damage_choices);
+                            chaotic_type = await this.queryDamageType(request.name, damage_choices, "chaos-bolt");
+                            if (chaotic_type === null) {
+                                // Query was cancelled
+                                chaotic_type = Object.keys(damage_choices)[0];
+                            }
                         }
                         damage_rolls[i] = [chaotic_type + " Damage", roll, flags];
                         damage_rolls[i + 1][0] = chaotic_type + " Damage";
@@ -591,7 +608,7 @@ class Beyond20RollRenderer {
 
             // If rolling the attack, check for critical hit, otherwise, use argument.
             if (request.rollAttack && to_hit.length > 0) {
-                this.processToHitAdvantage(to_hit_advantage, to_hit)
+                this.processToHitAdvantage(request.advantage, to_hit)
                 const critical_limit = request["critical-limit"] || 20;
                 is_critical = this.isCriticalHitD20(to_hit, critical_limit);
             } else {
@@ -624,7 +641,7 @@ class Beyond20RollRenderer {
             
             await this._roller.resolveRolls(request.name, all_rolls, request)
             if (to_hit.length > 0)
-                this.processToHitAdvantage(to_hit_advantage, to_hit)
+                this.processToHitAdvantage(request.advantage, to_hit)
             const critical_limit = request["critical-limit"] || 20;
             this.isCriticalHitD20(to_hit, critical_limit);
         }
@@ -746,7 +763,7 @@ class Beyond20RollRenderer {
     }
     displayAvatarToDiscord(request) {
         const discordChannel = getDiscordChannel(this._settings, request.character);
-        postToDiscord(discordChannel ? discordChannel.secret : "", request, request.name, "", {}, "", [], [], [], [], false).then((error) => {
+        postToDiscord(discordChannel ? discordChannel.secret : "", request, request.name, "", {}, "", [], [], [], [], false, this._settings).then((error) => {
             if (error)
                 this._displayer.displayError("Beyond20 Discord Integration: " + error);
         });
