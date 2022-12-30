@@ -177,7 +177,7 @@ const options_list = {
         "short": "BeyondLED Character Seating",
         "short_description": "Comma separated list of Character Names, names must be exact, order should match seating around the table.",
         "type": "string",
-        "default": "Kuruk of the Miwak Isle, Bodhi Sells, Splorch, Vathak Beastspeaker Munakaga, Marlow Dubade, Henrick Linquist"
+        "default": "Ootha of the Miwak Isle, Bodhi Sells, Splorch, Vathak Beastspeaker Munakaga, Marlow Dubade, Henrick Linquist"
     },
     "update-hp": {
         "title": "Update VTT Token HP",

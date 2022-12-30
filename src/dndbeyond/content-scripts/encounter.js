@@ -1,14 +1,15 @@
 console.log("Beyond20: D&D Beyond Encounter module loaded.");
 
-var led_port;
-var led_writer;
 var settings = getDefaultSettings();
 var last_monster_name = null;
 var last_combat = null;
 var character = null;
 var led_serial_started = false;
+var led_port;
+var led_writer;
 var highlighted_seat;
 
+// BEGIN Beyond LED Functions
 async function setupBeyondLED() {
     console.log("BeyondLED Setup Started.");
     const device_filters = [
@@ -23,9 +24,42 @@ async function setupBeyondLED() {
     console.log("BeyondLED Setup Complete.");
 }
 
-async function sendPlayerToBeyondLED(player) {
-    await led_writer.write(player);
+async function updateBeyondLED(partyStatusString) {
+    // Expects "<ACTIVE_PLAYER (int), bloodied (bool), bloodied (bool), bloodied (bool)...>" to send to LED device
+    await led_writer.write(partyStatusString);
 }
+
+function sendCombatUpdateToBeyondLED(combat) {
+    var highlight_seat;
+    var character_seating = settings['beyond-led-seating'].split(',').map(name => name.trim());
+    var active_combatant = combat.filter(combatant => (combatant.turn))[0];
+    var player_characters = combat.filter(combatant => (combatant.tags.includes("character")));
+    var player_status_array= [];
+
+    if (active_combatant.tags.includes("character")) {
+        highlight_seat = character_seating.indexOf(active_combatant.name) + 1; //DM is 0
+    }
+    else {
+        highlight_seat = 0; //DM Seat
+    }
+    if (highlight_seat !== highlighted_seat) {
+        //Get player statuses (whether they are bloodied or critical) in seating order.
+        character_seating.forEach(character_name => {
+            var pc = player_characters.filter(pc => pc.name == character_name)[0];
+            if (pc.tags.indexOf("is-bloodied") != -1 || pc.tags.indexOf("is-critical") != -1) { //If the PC is bloodied or critical
+                player_status_array.push(1);
+            }
+            else {
+                player_status_array.push(0);
+            }            
+        });
+        highlighted_seat = highlight_seat;
+        updateBeyondLED("<" + highlight_seat + ", " + player_status_array.toString() + ">");
+    }
+    console.log(active_combatant.name + "'s Turn");    
+    console.log("Highlighting Player Seat: " + highlight_seat);
+}
+// END Beyond LED Functions
 
 function documentModified(mutations, observer) {
 
@@ -86,29 +120,9 @@ function updateCombatTracker() {
             setupBeyondLED();
             return;
         }
-        var highlight_seat;
-        character_seating = settings['beyond-led-seating'].split(',').map(name => name.trim());
-        active_character = combat.filter(combatant => (combatant.turn))[0];
-        if (active_character.tags.includes("character")) {
-            highlight_seat = character_seating.indexOf(active_character.name) + 2; //DM + 0 index
-            if (highlight_seat !== highlighted_seat) {
-                sendPlayerToBeyondLED(highlight_seat);
-                highlighted_seat = highlight_seat;
-            }
-            console.log(active_character.name + "'s Turn");            
-        }
-        else {
-            highlight_seat = "1";
-            if (highlight_seat !== highlighted_seat) {
-                sendPlayerToBeyondLED(highlight_seat);
-                highlighted_seat = highlight_seat;
-            }
-            console.log(active_character.name + "'s Turn");            
-        }
-        console.log("Highlighting Player Seat: " + highlight_seat);
+        sendCombatUpdateToBeyondLED(combat);
     }
 }
-
 
 function updateSettings(new_settings = null) {
     if (new_settings) {
@@ -132,7 +146,6 @@ function handleMessage(request, sender, sendResponse) {
         alertFullSettings();
     }
 }
-
 
 updateSettings();
 injectCSS(BUTTON_STYLE_CSS);
